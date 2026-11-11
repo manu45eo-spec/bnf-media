@@ -1,0 +1,54 @@
+name: Fetch poster
+
+# Copies a temporary Canva export link into this repo so it gets a permanent public URL:
+# https://raw.githubusercontent.com/<username>/<repo>/main/posters/<filename>
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Temporary Canva export link"
+        required: true
+      filename:
+        description: "File name, e.g. 2026-11-16-page.png"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download poster
+        env:
+          URL: ${{ inputs.url }}
+          NAME: ${{ inputs.filename }}
+        run: |
+          # Only allow simple file names ending in .png or .jpg
+          if ! [[ "$NAME" =~ ^[A-Za-z0-9._-]+\.(png|jpg)$ ]]; then
+            echo "Bad file name: $NAME"; exit 1
+          fi
+          # Only allow Canva export links
+          if [[ "$URL" != https://export-download.canva.com/* ]]; then
+            echo "Only Canva export links are allowed"; exit 1
+          fi
+          mkdir -p posters
+          curl -fsSL "$URL" -o "posters/$NAME"
+          file "posters/$NAME" | grep -Eq 'PNG|JPEG' || { echo "Downloaded file is not an image"; exit 1; }
+
+      - name: Save to repo
+        env:
+          NAME: ${{ inputs.filename }}
+        run: |
+          git config user.name "poster-bot"
+          git config user.email "poster-bot@users.noreply.github.com"
+          git add posters
+          git commit -m "Add $NAME" || { echo "No change"; exit 0; }
+          # Retry in case several posters are saved at the same time
+          for i in 1 2 3 4 5; do
+            git pull --rebase && git push && exit 0
+            sleep 5
+          done
+          echo "Push failed"; exit 1
